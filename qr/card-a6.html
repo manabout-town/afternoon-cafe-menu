@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>QR 카드 인쇄</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="../style.css">
+<style>
+@page{size:105mm 148mm;margin:0}
+.controls{max-width:420px;margin:24px auto;padding:0 20px}
+.card{width:105mm;height:148mm;margin:0 auto 24px;padding:14mm 10mm 10mm;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);display:flex;flex-direction:column;align-items:center;text-align:center}
+.card .shop{margin:0 0 4mm;font-size:20pt}
+.card .lead{margin:0;font-size:12pt;font-weight:600}
+.card .lead-en{margin:1mm 0 7mm;font-size:9pt;color:rgba(var(--ink),.68)}
+#qr{width:62mm;height:62mm;display:flex;align-items:center;justify-content:center;color:rgba(var(--ink),.68)}
+#qr svg{width:100%;height:100%}
+.addr{margin-top:auto;font-size:8pt;color:rgba(var(--ink),.68);overflow-wrap:anywhere}
+@media print{body{background:none}.controls{display:none}.card{margin:0;background:none;box-shadow:none}}
+@media (max-width:440px){.card{transform:scale(.9);transform-origin:top center}}
+</style>
+</head>
+<body>
+<div class="controls stack">
+  <label>메뉴판 주소 <input id="url" type="url" placeholder="https://" inputmode="url"></label>
+  <label>가게 이름 <input id="shop-in"></label>
+  <button class="btn btn-primary" id="print" type="button">인쇄하기 (A6)</button>
+</div>
+<div class="card">
+  <p class="shop" id="shop"></p>
+  <p class="lead">QR을 찍으면 메뉴판이 열립니다</p>
+  <p class="lead-en">Scan for the menu (English available)</p>
+  <div id="qr"></div>
+  <p class="addr" id="addr"></p>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const urlIn = document.getElementById('url');
+const shopIn = document.getElementById('shop-in');
+urlIn.value = params.get('url') || '';
+shopIn.value = params.get('shop') || '오후세시 커피';
+qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
+
+function draw() {
+  const url = urlIn.value.trim();
+  document.getElementById('shop').textContent = shopIn.value.trim();
+  document.getElementById('addr').textContent = url.replace(/^https:\/\//, '');
+  const box = document.getElementById('qr');
+  if (!/^https:\/\/\S+$/.test(url)) { box.textContent = 'https://로 시작하는 메뉴판 주소를 넣어 주세요'; return; }
+  const qr = qrcode(0, 'M');
+  qr.addData(url); qr.make();
+  box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+}
+urlIn.addEventListener('input', draw);
+shopIn.addEventListener('input', draw);
+document.getElementById('print').addEventListener('click', () => window.print());
+draw();
+</script>
+</body>
+</html>

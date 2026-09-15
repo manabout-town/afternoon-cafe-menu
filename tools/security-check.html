@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>보안 점검</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main class="wrap admin">
+  <h1>보안 점검</h1>
+  <p>손님과 똑같이 공개 키만 가지고 메뉴를 추가·수정·삭제해 봅니다. 전부 막히면 통과입니다. 로그인하지 않은 상태로 점검합니다.</p>
+  <button class="btn btn-primary" id="run" type="button">점검 시작</button>
+  <p class="msg pass" id="verdict" role="status"></p>
+  <div class="scroll"><table id="results"><thead><tr><th>시도</th><th>결과</th><th>서버 응답</th></tr></thead><tbody></tbody></table></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js"></script>
+<script src="../config.js"></script>
+<script src="../menu.js"></script>
+<script>
+const cfg = window.MENU_CONFIG || {};
+const T = Menu.tables(cfg.TABLE_PREFIX);
+const $ = id => document.getElementById(id);
+const WORD = { blocked: '막힘', open: '뚫림', unclear: '판단 불가' };
+
+async function run() {
+  const verdict = $('verdict'); const body = $('results').tBodies[0];
+  body.replaceChildren();
+  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY || !window.supabase) { verdict.textContent = '점검하지 못함: config.js에 주소와 공개 키를 넣어 주세요.'; return; }
+  if (Menu.isSecretKey(cfg.SUPABASE_ANON_KEY)) { verdict.textContent = '실패: config.js에 비밀 키가 들어 있습니다. 바로 폐기하고 공개 키로 바꾸세요.'; return; }
+  verdict.textContent = '점검 중…';
+  const db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+  const cat = (await db.from(T.categories).select('*').limit(1)).data?.[0];
+  const item = (await db.from(T.items).select('*').limit(1)).data?.[0];
+  if (!cat || !item) { verdict.textContent = '점검하지 못함: 메뉴를 읽지 못했습니다. setup.sql 실행 여부와 인터넷 연결을 확인하세요.'; return; }
+  const checks = [
+    ['메뉴 추가', 'insert', () => db.from(T.items).insert({ category_id: cat.id, name: '보안 점검용', price: 0 }).select(),
+      rows => db.from(T.items).delete().in('id', rows.map(r => r.id))],
+    ['메뉴 가격 바꾸기', 'change', () => db.from(T.items).update({ price: item.price }).eq('id', item.id).select()],
+    ['종류 추가', 'insert', () => db.from(T.categories).insert({ name: '보안 점검용' }).select(),
+      rows => db.from(T.categories).delete().in('id', rows.map(r => r.id))],
+    ['종류 이름 바꾸기', 'change', () => db.from(T.categories).update({ name: cat.name }).eq('id', cat.id).select()],
+    ['사장님 명단에 끼어들기', 'insert', () => db.from(T.owners).insert({ user_id: '00000000-0000-0000-0000-000000000000' }).select()],
+    ['사장님 명단 엿보기', 'change', () => db.from(T.owners).select('*')],
+    ['메뉴 지우기', 'change', () => db.from(T.items).delete().eq('id', item.id).select(),
+      rows => db.from(T.items).insert(rows)],
+  ];
+  const verdicts = [];
+  for (const [name, kind, attempt, undo] of checks) {
+    const res = await attempt();
+    const v = Menu.classify(res, kind);
+    if (v === 'open' && undo && Array.isArray(res.data) && res.data.length) await undo(res.data); // 뚫렸으면 바뀐 것을 되돌린다
+    verdicts.push(v);
+    const tr = body.insertRow();
+    tr.insertCell().textContent = name;
+    tr.insertCell().textContent = WORD[v];
+    tr.insertCell().textContent = res.error ? `${res.error.code || ''} ${res.error.message}` : `${(res.data || []).length}줄`;
+  }
+  verdict.textContent = verdicts.every(v => v === 'blocked') ? '통과: 손님 권한으로는 아무것도 바꿀 수 없습니다.'
+    : verdicts.includes('open') ? '실패: 손님 권한으로 바뀌는 곳이 있습니다. 표에서 "뚫림"을 확인하고 setup.sql을 다시 실행하세요.'
+    : '점검하지 못함: 막혔는지 판단할 수 없는 응답이 있습니다. 서버 응답 칸을 확인하세요.';
+}
+$('run').addEventListener('click', run);
+</script>
+</body>
+</html>

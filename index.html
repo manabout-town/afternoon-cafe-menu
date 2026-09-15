@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>오후세시 커피 메뉴</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar-top">
+    <p class="shop">오후세시 커피</p>
+    <button type="button" id="lang" class="lang" aria-pressed="false">EN</button>
+  </div>
+  <nav class="wrap tabs" id="tabs" aria-label="메뉴 종류"></nav>
+</header>
+<main class="wrap">
+  <p class="notice" id="notice" role="status" hidden></p>
+  <div id="menu"></div>
+</main>
+<footer class="wrap foot">
+  <p>서울 마포구 망원동 가상로 3길 15 · 영업 11:00–22:00 · 월요일 휴무</p>
+  <p>전자책 실습용 가상 가게입니다.</p>
+</footer>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="menu-backup.js"></script>
+<script src="menu.js"></script>
+<script>
+const TEXT = {
+  ko: { soldOut: '품절', empty: '준비 중인 메뉴입니다.', toggle: 'EN',
+    notice: d => `저장해 둔 메뉴판(${d} 기준)을 보여 드리고 있어요. 최신 정보가 아닐 수 있어요.`,
+    broken: 'menu-backup.js 파일을 읽지 못했어요. 쉼표·따옴표·중괄호가 빠지지 않았는지 확인해 주세요.' },
+  en: { soldOut: 'Sold out', empty: 'Menu coming soon.', toggle: '한국어',
+    notice: d => `Showing the saved menu (as of ${d}). It may not be up to date.`,
+    broken: 'Could not read menu-backup.js.' },
+};
+let lang = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'ko';
+let state;
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+function render() {
+  const t = TEXT[lang];
+  document.documentElement.lang = lang;
+  const btn = document.getElementById('lang');
+  btn.textContent = t.toggle;
+  btn.setAttribute('aria-pressed', String(lang === 'en'));
+  const notice = document.getElementById('notice');
+  notice.hidden = state.source !== 'backup';
+  notice.textContent = state.data.broken ? t.broken : t.notice(state.data.savedAt);
+  const tabs = document.getElementById('tabs');
+  const menu = document.getElementById('menu');
+  tabs.replaceChildren(); menu.replaceChildren();
+  const groups = Menu.groupMenu(state.data);
+  if (!groups.length) menu.append(el('p', 'empty', t.empty));
+  for (const g of groups) {
+    const tab = el('a', 'tab', Menu.label(g, lang)); tab.href = `#cat-${g.id}`; tabs.append(tab);
+    const sec = el('section', 'cat'); sec.id = `cat-${g.id}`;
+    sec.append(el('h2', null, Menu.label(g, lang)));
+    const ul = el('ul', 'items');
+    for (const it of g.items) {
+      const li = el('li', it.sold_out ? 'item sold-out' : 'item');
+      if (it.image) { const img = el('img'); img.src = it.image; img.alt = Menu.label(it, lang); img.loading = 'lazy'; li.append(img); }
+      const body = el('div', 'body');
+      const row = el('div', 'row');
+      row.append(el('h3', null, Menu.label(it, lang)), el('span', 'price', Menu.formatPrice(it.price, lang)));
+      body.append(row);
+      if (it.description && lang === 'ko') body.append(el('p', 'desc', it.description));
+      if (it.sold_out) body.append(el('span', 'badge', t.soldOut));
+      li.append(body); ul.append(li);
+    }
+    sec.append(ul); menu.append(sec);
+  }
+  document.body.dataset.source = state.source;
+}
+
+document.getElementById('lang').addEventListener('click', () => {
+  lang = lang === 'en' ? 'ko' : 'en';
+  try {
+    const u = new URL(location.href);
+    if (lang === 'en') u.searchParams.set('lang', 'en'); else u.searchParams.delete('lang');
+    history.replaceState(null, '', u);
+  } catch { /* 파일로 열었을 때 주소를 못 바꿔도 화면은 바뀝니다 */ }
+  render();
+});
+
+(async () => {
+  state = await Menu.loadMenu({
+    config: window.MENU_CONFIG,
+    backup: window.MENU_BACKUP,
+    createClient: window.supabase && ((url, key) => window.supabase.createClient(url, key, { auth: { persistSession: false } })),
+  });
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>사장님 화면 · 오후세시 커피</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main class="wrap admin">
+  <h1>사장님 화면</h1>
+  <p class="msg" id="setup-msg" role="alert" hidden></p>
+
+  <form id="login" class="stack" hidden>
+    <label>이메일 <input type="email" name="email" autocomplete="username" required></label>
+    <label>비밀번호 <input type="password" name="password" autocomplete="current-password" required></label>
+    <button class="btn btn-primary" type="submit">로그인</button>
+    <p class="msg" id="login-msg" role="alert"></p>
+  </form>
+
+  <section id="panel" hidden>
+    <div class="bar">
+      <button class="btn" id="backup" type="button">백업 내려받기</button>
+      <button class="btn" id="logout" type="button">로그아웃</button>
+    </div>
+    <p class="msg" id="msg" role="status"></p>
+    <div id="list"></div>
+
+    <form id="add-item" class="stack">
+      <h2>메뉴 추가</h2>
+      <label>종류 <select name="category_id" required></select></label>
+      <label>이름 <input name="name" required></label>
+      <label>가격(원) <input name="price" type="number" min="0" step="100" inputmode="numeric" required></label>
+      <button class="btn btn-primary" type="submit">메뉴 추가</button>
+    </form>
+
+    <form id="add-category" class="stack">
+      <h2>종류 추가</h2>
+      <label>이름 <input name="name" required></label>
+      <button class="btn" type="submit">종류 추가</button>
+    </form>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js"></script>
+<script src="../config.js"></script>
+<script src="../menu.js"></script>
+<script>
+const cfg = window.MENU_CONFIG || {};
+const T = Menu.tables(cfg.TABLE_PREFIX);
+const $ = id => document.getElementById(id);
+const say = (id, text) => { $(id).textContent = text; };
+let db, data;
+
+function stop(text) { $('setup-msg').hidden = false; say('setup-msg', text); }
+
+async function start() {
+  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return stop('config.js에 Supabase 주소와 공개 키를 먼저 넣어 주세요. (PART 2)');
+  if (Menu.isSecretKey(cfg.SUPABASE_ANON_KEY)) return stop('config.js에 비밀 키가 들어 있습니다. Supabase에서 그 키를 바로 폐기하고, 공개 키로 바꿔 넣으세요.');
+  if (!window.supabase) return stop('인터넷 연결을 확인해 주세요. (supabase 라이브러리를 불러오지 못했습니다)');
+  db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const { data: { session } } = await db.auth.getSession();
+  if (session) await enter(); else $('login').hidden = false;
+}
+
+async function enter() {
+  const { data: { user } } = await db.auth.getUser();
+  const { data: rows, error } = user
+    ? await db.from(T.owners).select('user_id').eq('user_id', user.id)
+    : { data: [], error: null };
+  if (error || !rows.length) {
+    await db.auth.signOut();
+    $('login').hidden = false; $('panel').hidden = true;
+    return say('login-msg', '사장님으로 등록된 계정이 아닙니다. 사장님 등록 SQL(add-owner.sql)을 실행했는지 확인하세요.');
+  }
+  $('login').reset();
+  $('login').hidden = true; $('panel').hidden = false;
+  await reload();
+}
+
+$('login').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  say('login-msg', '확인 중…');
+  const { error } = await db.auth.signInWithPassword({ email: f.get('email'), password: f.get('password') });
+  if (error) return say('login-msg', '이메일 또는 비밀번호가 맞지 않습니다.');
+  say('login-msg', '');
+  await enter();
+});
+
+async function reload() {
+  const [c, i] = await Promise.all([db.from(T.categories).select('*'), db.from(T.items).select('*')]);
+  if (c.error || i.error) return say('msg', '메뉴를 불러오지 못했습니다: ' + (c.error || i.error).message);
+  data = { categories: c.data, items: i.data };
+  draw();
+}
+
+async function save(id, patch) {
+  const { data: rows, error } = await db.from(T.items).update(patch).eq('id', id).select();
+  if (error || !rows.length) { say('msg', '저장하지 못했습니다. 다시 로그인해 주세요.'); await reload(); return false; }
+  say('msg', '저장했습니다 ' + new Date().toLocaleTimeString('ko-KR'));
+  return true;
+}
+
+function draw() {
+  const groups = Menu.groupMenu(data, { includeHidden: true });
+  const list = $('list'); list.replaceChildren();
+  const select = document.querySelector('#add-item [name=category_id]'); select.replaceChildren();
+  for (const g of groups) {
+    select.append(new Option(g.name, g.id));
+    const sec = document.createElement('section'); sec.className = 'cat';
+    const h = document.createElement('h2'); h.textContent = g.name; sec.append(h);
+    g.items.forEach((it, idx) => sec.append(itemRow(it, g.items, idx)));
+    list.append(sec);
+  }
+}
+
+function itemRow(it, siblings, idx) {
+  const row = document.createElement('div');
+  row.className = 'edit'; row.dataset.id = it.id; row.dataset.name = it.name;
+  row.innerHTML = `
+    <label class="grow">이름 <input name="name"></label>
+    <label class="price-in">가격 <input name="price" type="number" min="0" step="100" inputmode="numeric"></label>
+    <label class="check"><input name="sold_out" type="checkbox"> 품절</label>
+    <label class="check"><input name="visible" type="checkbox"> 보이기</label>
+    <div class="tools">
+      <button class="btn" type="button" data-move="-1" aria-label="위로">↑</button>
+      <button class="btn" type="button" data-move="1" aria-label="아래로">↓</button>
+      <button class="btn" type="button" data-delete>삭제</button>
+    </div>`;
+  const q = n => row.querySelector(`[name="${n}"]`);
+  q('name').value = it.name; q('price').value = it.price;
+  q('sold_out').checked = it.sold_out; q('visible').checked = it.visible;
+  q('name').addEventListener('change', e => {
+    const name = e.target.value.trim();
+    if (!name) { say('msg', '이름은 비울 수 없습니다.'); return reload(); }
+    save(it.id, { name });
+  });
+  q('price').addEventListener('change', e => {
+    const price = Number(e.target.value);
+    if (e.target.value === '' || !Number.isInteger(price) || price < 0) { say('msg', '가격은 0 이상의 숫자로 적어 주세요.'); return reload(); }
+    save(it.id, { price });
+  });
+  q('sold_out').addEventListener('change', e => save(it.id, { sold_out: e.target.checked }));
+  q('visible').addEventListener('change', e => save(it.id, { visible: e.target.checked }));
+  row.querySelectorAll('[data-move]').forEach(b => b.addEventListener('click', async () => {
+    const j = idx + Number(b.dataset.move);
+    if (j < 0 || j >= siblings.length) return;
+    const order = [...siblings];
+    [order[idx], order[j]] = [order[j], order[idx]];
+    for (const [k, x] of order.entries()) if (x.sort !== k + 1 && !(await save(x.id, { sort: k + 1 }))) return;
+    await reload();
+  }));
+  row.querySelector('[data-delete]').addEventListener('click', async () => {
+    if (!confirm(`"${it.name}"을(를) 지울까요? 되돌리려면 백업 파일이 필요합니다.`)) return;
+    const { data: rows, error } = await db.from(T.items).delete().eq('id', it.id).select();
+    say('msg', error || !rows.length ? '지우지 못했습니다.' : '지웠습니다.');
+    await reload();
+  });
+  return row;
+}
+
+$('add-item').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const category_id = Number(f.get('category_id'));
+  const sort = data.items.filter(i => i.category_id === category_id).length + 1;
+  const { error } = await db.from(T.items).insert({ category_id, name: String(f.get('name')).trim(), price: Number(f.get('price')), sort });
+  say('msg', error ? '추가하지 못했습니다: ' + error.message : '메뉴를 추가했습니다.');
+  if (!error) e.target.reset();
+  await reload();
+});
+
+$('add-category').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = String(new FormData(e.target).get('name')).trim();
+  const { error } = await db.from(T.categories).insert({ name, sort: data.categories.length + 1 });
+  say('msg', error ? '추가하지 못했습니다: ' + error.message : '종류를 추가했습니다.');
+  if (!error) e.target.reset();
+  await reload();
+});
+
+$('backup').addEventListener('click', () => {
+  const today = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD, 내 컴퓨터 시간 기준
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([Menu.toBackupJs(data, today)], { type: 'text/javascript' }));
+  a.download = 'menu-backup.js';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  say('msg', 'menu-backup.js를 내려받았습니다. 저장소의 같은 파일과 바꿔 올리면 손님 화면의 비상용 메뉴도 새것이 됩니다.');
+});
+
+$('logout').addEventListener('click', async () => { await db.auth.signOut(); location.reload(); });
+
+start();
+</script>
+</body>
+</html>

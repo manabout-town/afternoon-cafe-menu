@@ -1,0 +1,7 @@
+{
+  "name": "afternoon-cafe-menu",
+  "private": true,
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\""
+  }
+}

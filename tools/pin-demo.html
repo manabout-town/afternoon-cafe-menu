@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>PIN 시연(운영 금지)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<main class="wrap admin">
+  <h1>PIN으로만 막은 사장님 화면</h1>
+  <p class="notice">시연용입니다. 실제 가게에 쓰지 마세요. 이 화면이 왜 뚫리는지 PART 4에서 보여 드립니다.</p>
+  <form id="pin" class="stack">
+    <label>PIN 4자리 <input name="pin" inputmode="numeric" maxlength="4" autocomplete="off" required></label>
+    <button class="btn btn-primary" type="submit">열기</button>
+    <p class="msg" id="pin-msg" role="alert"></p>
+  </form>
+  <form id="edit" class="stack" hidden>
+    <p id="current"></p>
+    <label>새 가격(원) <input name="price" type="number" min="0" step="100" required></label>
+    <button class="btn btn-primary" type="submit">가격 바꾸기</button>
+    <p class="msg" id="edit-msg" role="status"></p>
+  </form>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js"></script>
+<script src="../config.js"></script>
+<script>
+const cfg = window.MENU_CONFIG || {};
+const PIN = '0415'; // 이 번호는 페이지 소스를 여는 누구에게나 보입니다. 그게 이 시연의 요점입니다.
+const TABLE = (cfg.TABLE_PREFIX || 'acm_') + 'pin_demo';
+window.db = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase
+  ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: false } }) : null;
+const $ = id => document.getElementById(id);
+let row;
+
+async function show() {
+  if (!db) { $('current').textContent = 'config.js를 먼저 채우고 pin-demo.sql을 실행하세요.'; return; }
+  const { data, error } = await db.from(TABLE).select('*').order('id').limit(1);
+  row = data?.[0];
+  $('current').textContent = row ? `${row.name} — 지금 가격 ${row.price.toLocaleString('ko-KR')}원` : '시연용 표가 없습니다: ' + (error?.message || 'pin-demo.sql 실행');
+}
+
+$('pin').addEventListener('submit', e => {
+  e.preventDefault();
+  if (new FormData(e.target).get('pin') !== PIN) { $('pin-msg').textContent = '번호가 틀렸습니다.'; return; }
+  $('pin').hidden = true; $('edit').hidden = false;
+  show();
+});
+
+$('edit').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!row) return;
+  const { error } = await db.from(TABLE).update({ price: Number(new FormData(e.target).get('price')) }).eq('id', row.id);
+  $('edit-msg').textContent = error ? '실패: ' + error.message : '바꿨습니다.';
+  show();
+});
+</script>
+</body>
+</html>
