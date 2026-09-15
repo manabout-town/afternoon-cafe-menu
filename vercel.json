@@ -1,1 +1,1 @@
-{ "cleanUrls": true, "trailingSlash": true, "buildCommand": "node scripts/write-config.mjs", "outputDirectory": "." }
+{ "cleanUrls": true, "trailingSlash": false, "buildCommand": "node scripts/write-config.mjs", "outputDirectory": "." }
